@@ -1,237 +1,486 @@
 #include <iostream>
-#include "gurobi_c++.h"
 #include <vector>
-#include <cmath>
+#include <math.h>       /* pow */
+#include <stdio.h>
+#include<cmath>
+#include<ctime>
+#include<cstdlib>
 using namespace std;
 
-int M = 1000;
 
+// a bunch of useful functions first
+// implement matrix multiplication in a function
+vector<double> array_multiply_matrix(vector<double> array, vector< vector<double> > matrix) {
+    //Get the row of matrix
+    const unsigned short row = matrix.size();
+    //Get the column of matrix
+    const unsigned short col = matrix[0].size();
+    //Get the length of array
+    const unsigned short len_of_vector = array.size();
 
-// the gurobi function to implement frank-wolfe
-GRBLinExpr dot_product(vector<double> vect_A, vector<GRBVar>& vect_B)
-{
-    GRBLinExpr product = 0;
-    // Loop for calculate cot product
-    for (int i = 0; i < vect_A.size(); i++)
-        product += vect_A[i] * vect_B[i];
-    return product;
+    vector<double>  res;
+    if(row != len_of_vector) {  // if it can't be multiplied, return None
+        cout << "error input"<<endl;
+        return res;
+    }
+    else {
+        //initialize the result array
+        res.resize(col);
+        //multiplication
+        for(int j = 0; j < col; j++) {
+            for(int i = 0; i < row; i++) {
+                res[j] += matrix[i][j] * array[i];
+            }
+        }
+    }
+    return res;
 }
 
-vector<double> optimize(vector<double> delta_S, vector<double> X, int T)
-{
-    try {
 
-        // Create an environment
-        GRBEnv env = GRBEnv(true);
-        env.set("LogFile", "mip1.log");
-        env.start();
+double GaussRand(double dExpect, double dVariance) {
+    static double V1, V2, S;
+    static int phase = 0;
+    double X;
+    srand(time(0));
+    if(phase == 0) {
+        do {
+            double U1 = (double)rand() / RAND_MAX;
+            double U2 = (double)rand() / RAND_MAX;
 
-        // Create an empty model
-        GRBModel model = GRBModel(env);
-
-        // Create variables
-        vector<GRBVar> y;
-        y.resize(T);
-        for (int i = 0; i < T; i++)
-        {
-            y[i] = model.addVar(-GRB_INFINITY, GRB_INFINITY, 0.0, GRB_BINARY, "day" + to_string(i));
-        }
-
-        // Set objective: maximize the dot product of delta_s and y
-        GRBLinExpr prod = dot_product(delta_S, y);
-        model.setObjective(prod, GRB_MAXIMIZE);
-
-        // Add constraint: sum(y) == 0
-        GRBLinExpr sum_y = 0;
-        for (int i = 0; i < T; i++)
-        {
-            sum_y += y[i];
-        }
-        model.addConstr(sum_y == 0, "c0");
-
-        // add all the other constraints respectively
-        for (int i = 0; i < T; i++)
-        {
-            model.addConstr(X[i] + y[i] >= 0, "c" + to_string(i + 1));
-        }
-
-        // Optimize model
-        model.optimize();
-
-        vector<double> ret;
-
-        for (int i = 0; i < T; i++)
-        {
-            ret.push_back(y[i].get(GRB_DoubleAttr_X));
-        }
-
-        return ret;
-
-    } catch(GRBException e) {
-        cout << "Error code = " << e.getErrorCode() << endl;
-        cout << e.getMessage() << endl;
-    } catch(...) {
-        cout << "Exception during optimization" << endl;
+            V1 = 2 * U1 - 1;
+            V2 = 2 * U2 - 1;
+            S = V1 * V1 + V2 * V2;
+        } while(S >= 1 || S == 0);
+        X = V1 * sqrt(-2 * log(S) / S);
+    } else
+        X = V2 * sqrt(-2 * log(S) / S);
+    phase = 1 - phase;
+    return X * dVariance + dExpect;
+}
+// derivative of activate function
+double f_prime(double num) {
+    if (num > 0) {
+        return 1;
+    }
+    else if(num == 0) {
+        return 0.5;
+    }
+    else {
+        return 0;
     }
 }
 
 
-//define main function, taking T,N alpha and pi as input
-void optimized_solve (int T, int N, double alpha, double pi)
-{
-    vector<double> X;
-    unsigned int i,t;
-    // Initialize value of target function
-    double last_obj = 0;
-    double obj;
-    double best_obj;
-    //Gradient vector
-    vector<double> delta_s;
-    //Product basis
-    vector<double> pre_prod;
-    vector<double> all_term;
-    //Sum basis
-    vector<double> pre_sum_all_term;
-    //A certain part in derivative term
-    vector<double> deriv;
-    vector<double> y;
-    vector<double> best_X;
-    vector<double> cur_X;
-
-    // Initialize a bunch of variables
-    for (i = 0; i < T; i++)
-    {
-        delta_s.push_back(0);
-        pre_prod.push_back(0);
-        all_term.push_back(0);
-        pre_sum_all_term.push_back(0);
-        deriv.push_back(0);
-        y.push_back(0);
-        cur_X.push_back(0);
-        best_X.push_back(0);
-
+// activation function
+double ReLU(double input) {
+    if(input > 0) {
+        return input;
     }
-    // Initialize strategy
-    X.push_back(N);
-    for (i = 1; i < T; i++)
-    {
-        X.push_back(0);
+    else {
+        return 0;
     }
-
-    for (t = 1; t <= 10000; t++)
-    {
-        //Initialize a bunch of variables
-        delta_s[0] = 0;
-        pre_prod[0] = 1 - alpha * pow(X[0], pi);
-        all_term[0] = pre_prod[0] * X[0];
-        pre_sum_all_term[0] = all_term[0];
-        if (X[0] > 0)
-        {
-            deriv[0] = -1 * alpha * pi * pow(X[0], pi - 1);
-        }
-        else
-        {
-            deriv[0] = 0;
-        }
-
-        for (unsigned j = 1; j < T; j++)
-        {
-            delta_s[j] = 0;
-            pre_prod[j] = pre_prod[j - 1] * (1 - alpha * pow(X[j], pi));
-            all_term[j] = X[j] * pre_prod[j];
-            pre_sum_all_term[j] = pre_sum_all_term[j - 1] + all_term[j];
-            if (X[j] > 0)
-            {
-                deriv[j] = -1 * alpha * pi * pow(X[j], pi - 1);
-            }
-            else
-            {
-                deriv[j] = 0;
-            }
-        }
-        last_obj = pre_sum_all_term[T - 1];
-
-
-        //Compute derivative function
-        for (unsigned j = 0; j < T; j++)
-        {
-            delta_s[j] = pre_prod[j] \
-            + (pre_sum_all_term[T - 1] - pre_sum_all_term[j]) / (1 - alpha * pow(X[j], pi)) * deriv[j];
-            if (j > 0)
-            {
-                delta_s[j] += X[j] * deriv[j] * pre_prod[j-1];
-            }
-            else
-            {
-                delta_s[j] += X[j] * deriv[j];
-            }
-        }
-        //Get our optimal direction
-        y = optimize(delta_s, X, T);
-        best_X = X;
-        best_obj = 0;
-        //Initialize maximal value in terms of step size choice
-        for (unsigned j = 0; j < T; j++)
-        {
-            best_obj += X[j] * pre_prod[j];
-
-        }
-
-        for (unsigned int j = 1; j <= M; j++)
-        {
-            //Get a partition of [0,1] to M part
-            for (unsigned k = 0; k < T; k++)
-            {
-                cur_X[k] = X[k] + y[k] * (j * 1.0 / M);
-            }
-
-            //Compute current value of function
-            pre_prod[0] = 1 - alpha * pow(cur_X[0], pi);
-            obj = pre_prod[0] * cur_X[0];
-            for (unsigned int k = 1; k < T; k++)
-            {
-                pre_prod[k] = pre_prod[k-1] * (1 - alpha * pow(cur_X[k], pi));
-                obj += pre_prod[k] * cur_X[k];
-
-            }
-            // Renew the best step size
-            if (obj > best_obj)
-            {
-                best_X = cur_X;
-                best_obj = obj;
-            }
-        }
-        // Renew current strategy
-        X = best_X;
-        //Stopping rule
-        if (best_obj - last_obj < 1e-7)
-        {
-            break;
-        }
-    }
-    cout << "The optimal execution in each period is" << " ";
-    for (unsigned j=0; j < T; j++){
-        cout << X[j] << " ";
-    }
-    cout << endl;
-    cout << "The optimal value we got is " << best_obj << endl;
 }
 
 
-// driver
+// activate vector aka use ReLU
+vector<double> activate(vector<double> input){
+    vector<double> output;
+    for(int i = 0; i < input.size(); i++) {
+        output.push_back(ReLU(input[i]));
+    }
+    return output;
+}
+
+
+// initialize output for each neuron each day
+vector< vector<double> > X;
+vector< vector<double> > Y;
+vector< vector<double> > Z;
+vector< double> F;  // final layer output for each day
+
+
+// initialize the matrices to hold output vectors for all dates
+void calc_output(vector< vector<double> > weights_1, vector< vector<double> > weights_2,
+                 vector<double> weights_3, vector< vector<double> > df) {
+
+
+    for (int i = 0; i < df.size(); i++) {
+        F[i] = 0.0;
+    }
+    for (int i = 0; i < X.size(); i++) {
+        // x's, y's and z's hold the output of each layer
+        X[i] = activate(df[i]);
+        Y[i] = activate(array_multiply_matrix(X[i], weights_1));
+        Z[i] = activate(array_multiply_matrix(Y[i], weights_2));
+        for (int j = 0; j < 5; j++) {
+            F[i] += Z[i][j] * weights_3[j];
+
+        }
+
+        F = activate(F);
+
+    }
+}
+
+
+// loss function
+double get_loss(const vector<double> volume ) {
+    double ret = 0;
+    int T = volume.size();
+    for(int i = 0; i < T; i++) {
+        ret += pow((F[i] - volume[i]), 2);
+        //cout << " Output :" << F[i] << endl;
+    }
+    ret /= T;
+    return ret;
+}
+
+
+vector<double> normalize(vector<double> vec) {
+    double s_mean = 0;
+    double s_var = 0;
+    for(int i = 0; i < vec.size(); i++) {
+        s_mean += vec[i];
+    }
+    s_mean /= vec.size();
+    for(int i = 0; i < vec.size(); i++) {
+        s_var += (s_mean - vec[i]) * (s_mean - vec[i]);
+    }
+    s_var /= vec.size();
+    for(int i = 0; i < vec.size(); i++) {
+        vec[i] = (vec[i] - s_mean) / pow(s_var, 0.5);
+    }
+    return vec;
+}
+
+
+vector<double> get_column(vector< vector<double> > df, int col) {
+    vector<double> ans;
+    ans.resize(df.size());
+    for(int i = 0; i < df.size(); i++) {
+        ans[i] = df[i][col];
+    }
+    return ans;
+}
+
+
 int main() {
-    optimized_solve(20,10000,0.001,0.5);
+    freopen("../nnew_500.txt", "r", stdin);
+    double val;
+    vector< vector<double> > data;
+    vector< vector<double> > data_test;
+    vector<double> row;
+    vector<double> S;
+    vector<double> S_test;
+
+    int days, n;
+    scanf("%d%d", &days, &n);
+    for(int i = 0; i < days; i++) {
+        if(i > 232) {
+            row.clear();
+            for(int j = 0; j < n; j++) {
+                scanf("%lf", &val);
+                row.push_back(val);
+            }
+            data_test.push_back(row);
+            scanf("%lf", &val);
+            S_test.push_back(val);
+        }
+        if (i <= 232) {
+            row.clear();
+            for (int j = 0; j < n; j++) {
+                scanf("%lf", &val);
+                row.push_back(val);
+            }
+            data.push_back(row);
+            scanf("%lf", &val);
+            S.push_back(val);
+        }
+    }  // finished reading in here
+
+    //S = normalize(S);
+//    for(int i = 0; i < S.size(); i++) {
+//        cout << S[i] << endl;
+//    }
+//    vector< vector<double> > data1 = data;  // no need to resize then
+//    for(int i = 0; i < data[0].size(); i++) {
+//        vector<double> temp = normalize(get_column(data, i));
+//        for(int j = 0; j < data.size(); j ++) {
+//            data1[j][i] = temp[j];
+//        }
+//    }
+    //data = data1;
+    // cout << data[0][0] << " " << data[0][1] << " " << data[1][0] << " " << data[1][1] << endl;
+
+    // data 466 * 483
+//    // S 466
+//    for(int i = 0; i < days; i++) {
+//        for(int j = 0; j < n; j++)
+//            printf("%.3lf%c", data[i][j], " \n"[j + 1 == n]);
+//        printf("\n");
+//    }
+
+    // random initialize
+    vector<double> zero1;
+    vector<double> zero2;
+    vector<double> zero3;
+    vector< vector<double> > w1;
+
+    for (int i = 0; i < data[0].size();i++){
+        zero1.push_back(0);
+    }
+    for (int i = 0; i < 50 ;i++){
+        zero2.push_back(0);
+    }
+    for (int i = 0; i < 5 ;i++){
+        zero3.push_back(0);
+    }
+    for (int i = 0; i < data.size();i++){
+        X.push_back(zero1);
+        Y.push_back(zero2);
+        Z.push_back(zero3);
+        F.push_back(0);
+    }
+//    X.resize(data.size());
+//    Y.resize(data.size());
+//    Z.resize(data.size());
+//    F.resize(data.size());
+
+//    for(int i = 0; i < X.size(); i++) {
+//        X[i].resize(data[i].size());
+//        Y[i].resize(50);
+//        Z[i].resize(5);
+//    }
+
+
+
+    for(int i = 0; i < 483; i++){
+        w1.push_back(zero2);
+    }
+    for(int i = 0; i < 483; i++) {
+        for(int j = 0; j < 50; j++){
+            w1[i][j] = GaussRand(0,1);  // random
+        }
+    }
+    vector< vector<double> > w2;
+
+    for(int i = 0; i < 50; i++){
+        w2.push_back(zero3);
+    }
+    for(int i = 0; i < 50; i++) {
+        for(int j = 0; j < 5; j++){
+            w2[i][j] = GaussRand(0,1);  // same, random
+        }
+    }
+    vector<double> w3;
+    for(int i = 0; i < 5; i++){
+        w3.push_back(GaussRand(0,1));
+    }
+
+    // initialize weights's, and a trivial loss value
+    // double loss = 0;
+    // main recursion of GD
+    double loss = 0;
+    double new_loss = 0;
+    double trial_loss = 0;
+    double trial_loss_2 = 0;
+    double loss_test = 0;
+    vector<vector<double> > charlie;
+    for (int i = 0; i < 483; i++){
+        charlie.push_back(zero2);
+    }
+
+    vector<vector<double> > bravo;
+    for (int i = 0; i < 50; i++){
+        bravo.push_back(zero3);
+    }
+
+
+    vector<double> alpha;
+    alpha = zero3;
+
+    long double lambda;
+    vector<vector<double> > v1;
+    vector<vector<double> > v2;
+    vector<double> v3;
+    for(int _ = 0; _ < 25; _++) {
+        calc_output(w1, w2, w3, data);
+        new_loss = get_loss(S);
+
+//        for(int t = 0; t < data.size(); t++) {
+//            cout << S[t] << endl;
+//        }
+        cout << new_loss << endl;
+      //  if(abs(loss - new_loss) / loss < 0.0001) {
+        //    break;
+   // }
+        //loss = new_loss;
+        // let's start calculating the gradient
+
+        for (int i = 0; i < 483; i++) {
+            for (int j = 0; j < 50; j++) {
+                charlie[i][j] = 0;  // random
+            }
+        }
+
+        for (int i = 0; i < 50; i++) {
+            for (int j = 0; j < 5; j++) {
+                bravo[i][j] = 0;  // same, random
+            }
+        }
+
+        for (int i = 0; i < 5; i++) {
+            alpha[i] = 0;
+        }
+
+        // iterate over the dates to calc the average gradient
+        for (int t = 0; t < data.size(); t++) {
+            // last layer gradient
+            for (int i = 0; i < 5; i++) {
+                alpha[i] += 2 * (F[t] - S[t]) * Z[t][i] / data.size();  // just to avoid infinite divisions in the end
+            }
+            // second layer gradient
+            for (int i = 0; i < 50; i++) {
+                for (int j = 0; j < 5; j++) {
+                    bravo[i][j] += 2 * (F[t] - S[t]) * w3[j] * f_prime(Z[t][j]) * Y[t][i] / data.size();
+                }
+            }
+            // first layer gradient
+            for (int k = 0; k < 5; k++) {
+                // printf("%d\n", k);
+                for (int i = 0; i < 483; i++) {
+                    for (int j = 0; j < 50; j++) {
+                        charlie[i][j] += 2 * (F[t] - S[t]) *
+                                         w3[k] * f_prime(Z[t][k]) * w2[k][j] * f_prime(Y[t][j]) * X[t][i] / data.size();
+                    }
+                }
+            }
+
+        }
+
+        // w1 - charlie, w2 - bravo, w3 - alpha
+        lambda = 1e-13;
+        loss = new_loss;
+
+
+        v1 = w1;
+        v2 = w2;
+        v3 = w3;
+
+        for (int i = 0; i < 483; i++) {
+            for (int j = 0; j < 50; j++) {
+                v1[i][j] -= lambda * charlie[i][j];
+            }
+        }
+
+        for (int i = 0; i < 50; i++) {
+            for (int j = 0; j < 5; j++) {
+                // cout << w2[i][j] << endl;
+                v2[i][j] -= lambda * bravo[i][j];
+            }
+        }
+
+        for (int i = 0; i < 5; i++) {
+            v3[i] -= lambda * alpha[i];
+            // cout << w3[i] << endl;
+        }
+        calc_output(v1, v2, v3, data);
+        trial_loss = get_loss(S);
+            while (trial_loss > loss) {
+                lambda /= 2;
+//                if (lambda < 1e-20){
+//                    lambda = 1e-17;
+//                    break;
+//                }
+
+                v1 = w1;
+                v2 = w2;
+                v3 = w3;
+                for (int i = 0; i < 483; i++) {
+                    for (int j = 0; j < 50; j++) {
+                        v1[i][j] -= lambda * charlie[i][j];
+                    }
+                }
+
+                for (int i = 0; i < 50; i++) {
+                    for (int j = 0; j < 5; j++) {
+                        // cout << w2[i][j] << endl;
+                        v2[i][j] -= lambda * bravo[i][j];
+                    }
+                }
+
+                for (int i = 0; i < 5; i++) {
+                    v3[i] -= lambda * alpha[i];
+                    // cout << w3[i] << endl;
+                }
+                calc_output(v1, v2, v3, data);
+                trial_loss = get_loss(S);
+                cout << trial_loss<< " "<< loss << endl;
+                cout << "lambda" << ' '<< lambda << endl;
+            }
+
+
+
+            trial_loss_2 = trial_loss;
+            while (trial_loss_2 <= trial_loss) {
+                lambda /= 1.3;
+                v1 = w1;
+                v2 = w2;
+                v3 = w3;
+                for (int i = 0; i < 483; i++) {
+                    for (int j = 0; j < 50; j++) {
+                        v1[i][j] -= lambda * charlie[i][j];
+                    }
+                }
+
+                for (int i = 0; i < 50; i++) {
+                    for (int j = 0; j < 5; j++) {
+                        // cout << w2[i][j] << endl;
+                        v2[i][j] -= lambda * bravo[i][j];
+                    }
+                }
+
+                for (int i = 0; i < 5; i++) {
+                    v3[i] -= lambda * alpha[i];
+                    // cout << w3[i] << endl;
+                }
+                calc_output(v1, v2, v3, data);
+                trial_loss = trial_loss_2;
+                trial_loss_2 = get_loss(S);
+
+                cout << "lamda2" << ' ' << lambda << endl;
+                cout << "trial_loss_2"<< trial_loss_2 << endl;
+
+            }
+            lambda *= 1.3;
+            cout << " Lambda: "<< lambda << endl;
+        for(int i = 0; i < 483; i++) {
+            for(int j = 0; j < 50; j++) {
+                w1[i][j] -= lambda * charlie[i][j];
+            }
+        }
+
+        for(int i = 0; i < 50; i++) {
+            for(int j = 0; j < 5; j++) {
+                // cout << w2[i][j] << endl;
+                w2[i][j] -= lambda * bravo[i][j];
+            }
+        }
+
+        for(int i = 0; i < 5; i++) {
+            w3[i] -= lambda * alpha[i];
+            // cout << w3[i] << endl;
+        }
+    }
+
+    loss_test = get_loss(S_test);
+    cout << "lost_test"<<" "<<loss_test<< endl;
     return 0;
 }
 
-//int main() {
-//    int t = 5;
-//    vector<double> x = {0.2, 0.2, 0.2, 0.2, 0.2};
-//    vector<double> triangle = {-1, 1, 3, 2, 5};
-//    vector<double> ans = optimize(triangle, x, t);
-//    for (int i = 0; i < ans.size(); i++)
-//    {
-//        cout << ans[i] << endl;
+//    vector<double> v= {1, 2};
+//    vector< vector<double>> w = {{1, 2}, {2, 3}};
+//    vector<double> ans = matrix_multiply_array(w, v);
+//    for (unsigned i = 0; i < ans.size(); i++) {
+//        cout << ans[i] << " ";
 //    }
-//    return 0;
-//}
