@@ -1,100 +1,83 @@
 #include <iostream>
-#define MaxVertexNum 10
-typedef int Vertex;
-typedef int WeightType;
-typedef struct ENode* PtrToENode;
-struct ENode{
-    Vertex v1, v2;
-};
-typedef PtrToENode Edge;
-typedef struct GNode* PtrToGNode;
-struct GNode{
-    int Nv;
-    int Ne;
-    WeightType G[MaxVertexNum][MaxVertexNum];
-};
-typedef PtrToGNode MGraph;
-MGraph CreateGraph(int VertexNum){
-    Vertex v, w;
-    MGraph Graph;
-    Graph = (MGraph) malloc(sizeof(struct GNode));
-    Graph -> Nv = VertexNum;
-    Graph -> Ne = 0;
-    for (v = 0; v < Graph -> Nv; v++)
-        for (w = 0; w < Graph -> Nv; w++)
-            Graph -> G[v][w] = 0;
-    return Graph;
+#define Maxsize 10001
+typedef int ElementType;
+typedef int SetName;
+typedef int SetType[Maxsize];
+
+void Initialization(SetType S,ElementType n){
+    for (int i = 0; i < n; i++)
+        S[i] = -1;
 }
-void InsertEdge(MGraph Graph, Edge E){
-    Graph -> G[E -> v1][E -> v2] = 1;
-    Graph -> G[E -> v2][E -> v1] = 1;
+
+SetName Find(SetType S,ElementType X){
+    if (S[X] < 0)
+        return X;
+    return S[X] = Find(S,S[X]);
 }
-MGraph BuildGraph(){
-    MGraph Graph;
-    Edge E;
-    int Nv,i;
-    scanf("%d", &Nv);
-    Graph = CreateGraph(Nv);
-    scanf("%d",&Graph -> Ne);
-    if (Graph -> Ne != 0){
-        E = (Edge) malloc(sizeof(struct ENode));
-        for (i = 0; i < Graph -> Ne; i++){
-            scanf("%d %d", &E -> v1,&E -> v2 );
-            InsertEdge(Graph,E);
-        }
+
+void Union(SetType S,ElementType X1, ElementType X2){
+    int Root1, Root2;
+    Root1 = Find(S,X1);
+    Root2 = Find(S,X2);
+    if (S[Root1] < S[Root2])
+        S[Root2] = Root1;
+    else {
+        if (S[Root1] == S[Root2])
+            S[Root1]--;
+        S[Root1] = Root2;
 
     }
-    return Graph;
 }
-void DFS(MGraph Graph,Vertex v, int visit[]){
-    visit[v] = 1;
+
+void Input_Connection(SetType S){
+    ElementType u,v;
+    SetName Root1, Root2;
+    scanf("%d %d\n",&u,&v);
+    Root1 = Find(S,u - 1);
+    Root2 = Find(S, v - 1);
+    if (Root1 != Root2)
+        Union(S, Root1, Root2);
+}
+
+void Check_Connection(SetType S){
+    ElementType u,v;
+    SetName Root1, Root2;
+    scanf("%d %d\n",&u,&v);
+    Root1 = Find(S,u - 1);
+    Root2 = Find(S, v - 1);
+    if (Root1 == Root2)
+        printf("yes\n");
+    else
+        printf("no\n");
+}
+
+void Check_Network(SetType S, ElementType n){
+    int cnt = 0;
     int i;
-    printf("%d ",v);
-    for (i = 0; i < Graph -> Nv; i++){
-        if (visit[i] == 0 && Graph -> G[v][i] == 1)
-            DFS(Graph, i, visit);
+    for (i = 0; i < n; i++){
+        if (S[i] < 0)
+            cnt += 1;
     }
-}
-void BFS(MGraph Graph, Vertex v, int visit[]){
-    visit[v] = 1;
-    int queue[MaxVertexNum];
-    int first, rear,i;
-    Vertex w;
-    first = -1;
-    rear = -1;
-    queue[++rear] = v;
-    while (rear > first){
-        w = queue[++first];
-        printf("%d ",w);
-        for (i = 0;i < Graph -> Nv; i++){
-            if (visit[i] == 0 && Graph -> G[w][i] == 1){
-                visit[i] = 1;
-                queue[++rear] = i;
-            }
-        }
-    }
-
-
+    if (cnt == 1)
+        printf("The network is connected.\n");
+    else
+        printf("There are %d components.\n",cnt);
 }
 int main() {
-    MGraph Graph;
-    int visit[MaxVertexNum] = {0};
-    Graph = BuildGraph();
-    int i;
-    for (i = 0; i < Graph -> Nv; i++){
-        if (visit[i] == 0){
-            printf("{ ");
-            DFS(Graph,i,visit);
-            printf("}\n");
+    SetType S;
+    int n;
+    char in;
+    scanf("%d",&n);
+    Initialization(S,n);
+    do{
+        scanf("%c",&in);
+        switch (in) {
+            case 'I': Input_Connection(S);break;
+            case 'C': Check_Connection(S);break;
+            case 'S': Check_Network(S,n);break;
+
         }
     }
-    for (i = 0; i < MaxVertexNum;i++)
-        visit[i] = 0;
-    for (i = 0; i < Graph -> Nv; i++){
-        if (visit[i] == 0){
-            printf("{ ");
-            BFS(Graph,i,visit);
-            printf("}\n");
-        }
-    }
+    while (in != 'S');
+    return 0;
 }
